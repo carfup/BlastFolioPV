@@ -1,0 +1,6 @@
+{
+  "name": "Simulateur de Plus-Value",
+  "description": "Application pour calculer le prix de vente minimum pour obtenir une plus-value nette, en tenant compte du carried interest et de la flat tax.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
