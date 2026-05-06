@@ -30,44 +30,50 @@ export default function App() {
   const [app2TargetPct, setApp2TargetPct] = useState<number>(50);
 
   // === Derived Configuration ===
-  const totalInvested = (shares * purchasePrice) + fees;
+  const baseInvested = shares * purchasePrice;
+  const totalInvested = baseInvested + fees;
   const pru = shares > 0 ? totalInvested / shares : 0;
 
   // === Helpers ===
-  const calculateTaxes = (brute: number) => {
-    if (brute <= 0) return { net: brute, carried: 0, flatTax: 0 };
-    const carried = brute * CARRIED_RATE;
-    const remaining = brute - carried;
+  const calculateTaxes = (taxableBrute: number) => {
+    if (taxableBrute <= 0) return { carried: 0, flatTax: 0, totalTaxes: 0 };
+    const carried = taxableBrute * CARRIED_RATE;
+    const remaining = taxableBrute - carried;
     const flatTax = remaining * FLAT_TAX_RATE;
-    const net = brute - carried - flatTax;
-    return { net, carried, flatTax };
+    return { carried, flatTax, totalTaxes: carried + flatTax };
   };
 
   const getRequiredPriceForNetPv = (targetNetAmount: number) => {
-    if (targetNetAmount <= 0) return pru;
-    const requiredBrute = targetNetAmount / NET_FACTOR;
-    const requiredTotalCession = totalInvested + requiredBrute;
+    if (targetNetAmount <= -fees) {
+      const requiredTotalCession = totalInvested + targetNetAmount;
+      return shares > 0 ? requiredTotalCession / shares : 0;
+    }
+    const requiredTotalCession = baseInvested + (targetNetAmount + fees) / NET_FACTOR;
     return shares > 0 ? requiredTotalCession / shares : 0;
   };
 
   // === Approach 1 Calculations ===
   const app1TotalCession = shares * app1Price;
   const app1PvBrute = app1TotalCession - totalInvested;
-  const app1Taxes = calculateTaxes(app1PvBrute);
-  const app1PvNettePct = totalInvested > 0 ? (app1Taxes.net / totalInvested) * 100 : 0;
+  const app1TaxableBrute = app1TotalCession - baseInvested;
+  const app1Taxes = calculateTaxes(app1TaxableBrute);
+  const app1PvNette = app1PvBrute - app1Taxes.totalTaxes;
+  const app1PvNettePct = totalInvested > 0 ? (app1PvNette / totalInvested) * 100 : 0;
 
   // === Approach 2 Calculations ===
   const app2TargetNetPvAmount = totalInvested * (app2TargetPct / 100);
   const app2RequiredPrice = getRequiredPriceForNetPv(app2TargetNetPvAmount);
   const app2TotalCession = shares * app2RequiredPrice;
   const app2PvBrute = app2TotalCession - totalInvested;
-  const app2Taxes = calculateTaxes(app2PvBrute);
+  const app2TaxableBrute = app2TotalCession - baseInvested;
+  const app2Taxes = calculateTaxes(app2TaxableBrute);
+  const app2PvNette = app2PvBrute - app2Taxes.totalTaxes;
 
   // === Thresholds ===
-  const thresholdReoupPrice = getRequiredPriceForNetPv(totalInvested);
+  const thresholdReoupPrice = getRequiredPriceForNetPv(0);
   const thresholdReoupMultiple = thresholdReoupPrice > 0 ? (thresholdReoupPrice * shares) / totalInvested : 0;
 
-  const thresholdDoublePrice = getRequiredPriceForNetPv(totalInvested * 2);
+  const thresholdDoublePrice = getRequiredPriceForNetPv(totalInvested);
   const thresholdDoubleMultiple = thresholdDoublePrice > 0 ? (thresholdDoublePrice * shares) / totalInvested : 0;
 
 
@@ -80,13 +86,14 @@ export default function App() {
       <div className="max-w-6xl mx-auto space-y-8 relative z-10">
 
         {/* Info Banner */}
-        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-5 flex items-center gap-4 text-slate-300 text-sm backdrop-blur-sm shadow-xl">
+        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-5 flex items-start md:items-center gap-4 text-slate-300 text-sm backdrop-blur-sm shadow-xl">
           <div className="w-10 h-10 rounded bg-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0">
             <Info className="w-5 h-5" />
           </div>
-          <p className="font-medium leading-relaxed">
-            PV nette = PV brute &times; (1 − 20% carried) &times; (1 − 31,4% flat tax) = PV brute &times; <strong className="text-white">0.5488</strong>
-          </p>
+          <div className="font-medium leading-relaxed">
+            <p><strong className="text-white">Note fiscale :</strong> Le calcul du carried interest (20%) et de la flat tax (31,4%) s'applique sur la <strong className="text-white">plus-value hors frais</strong> (Cession − Achat).</p>
+            <p className="opacity-80 mt-0.5">La charge fiscale globale représente 45,12% de cette base imposable.</p>
+          </div>
         </div>
 
         {/* Configuration Section  */}
@@ -178,13 +185,13 @@ export default function App() {
                   onClick={() => setApp1Price(pru)}
                   className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold uppercase tracking-wider rounded border border-slate-700 transition-colors shadow-sm"
                 >
-                  Seuil PV nette (P &gt; PRU)
+                  Retour au PRU
                 </button>
                 <button 
                   onClick={() => setApp1Price(thresholdReoupPrice)}
                   className="px-4 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-xs font-bold uppercase tracking-wider rounded border border-emerald-500/20 transition-colors shadow-sm"
                 >
-                  Récupérer sa mise
+                  Point mort (Net = 0)
                 </button>
                 <button 
                   onClick={() => setApp1Price(thresholdDoublePrice)}
@@ -208,26 +215,33 @@ export default function App() {
                   <span className="uppercase tracking-[0.1em] text-xs font-bold">Plus-value brute</span>
                   <span className="font-mono text-lg">{app1PvBrute > 0 ? '+' : ''}{formatCurrency(app1PvBrute)}</span>
                 </div>
+
+                {app1TaxableBrute > 0 && (
+                  <div className="flex justify-between items-center text-slate-400 text-xs">
+                    <span className="uppercase tracking-[0.1em]">Base imposable (hors frais)</span>
+                    <span className="font-mono">+{formatCurrency(app1TaxableBrute)}</span>
+                  </div>
+                )}
                 
-                {app1PvBrute > 0 && (
+                {app1TaxableBrute > 0 && (
                   <div className="flex justify-between items-center text-orange-400/80 text-sm">
                     <span>Carried interest (20%)</span>
                     <span className="font-mono">− {formatCurrency(app1Taxes.carried)}</span>
                   </div>
                 )}
-                {app1PvBrute > 0 && (
+                {app1TaxableBrute > 0 && (
                   <div className="flex justify-between items-center text-orange-400/80 text-sm">
                     <span>Flat Tax / PFU (31,4%)</span>
                     <span className="font-mono">− {formatCurrency(app1Taxes.flatTax)}</span>
                   </div>
                 )}
 
-                <div className={`flex justify-between items-center mt-5 p-5 rounded-xl border ${app1Taxes.net >= 0 ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-rose-500/10 border-rose-500/20 text-rose-400'}`}>
+                <div className={`flex justify-between items-center mt-5 p-5 rounded-xl border ${app1PvNette >= 0 ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-rose-500/10 border-rose-500/20 text-rose-400'}`}>
                   <span className="uppercase tracking-[0.1em] text-sm font-bold text-white">Plus-value nette</span>
                   <span className="flex items-baseline gap-2 font-mono text-2xl font-bold">
-                    {app1Taxes.net > 0 ? '+' : ''}{formatCurrency(app1Taxes.net)}
+                    {app1PvNette > 0 ? '+' : ''}{formatCurrency(app1PvNette)}
                     <span className="text-sm font-sans font-medium opacity-80 tracking-normal ml-1">
-                      ({app1Taxes.net > 0 ? '+' : ''}{formatPercent(app1PvNettePct)})
+                      ({app1PvNette > 0 ? '+' : ''}{formatPercent(app1PvNettePct)})
                     </span>
                   </span>
                 </div>
@@ -296,14 +310,21 @@ export default function App() {
                   <span className="uppercase tracking-[0.1em] text-xs font-bold">Plus-value brute</span>
                   <span className="font-mono text-lg">+{formatCurrency(app2PvBrute)}</span>
                 </div>
+
+                {app2TaxableBrute > 0 && (
+                  <div className="flex justify-between items-center text-slate-400 text-xs">
+                    <span className="uppercase tracking-[0.1em]">Base imposable (hors frais)</span>
+                    <span className="font-mono">+{formatCurrency(app2TaxableBrute)}</span>
+                  </div>
+                )}
                 
-                {app2PvBrute > 0 && (
+                {app2TaxableBrute > 0 && (
                   <div className="flex justify-between items-center text-orange-400/80 text-sm">
                     <span>Carried interest (20%)</span>
                     <span className="font-mono">− {formatCurrency(app2Taxes.carried)}</span>
                   </div>
                 )}
-                {app2PvBrute > 0 && (
+                {app2TaxableBrute > 0 && (
                   <div className="flex justify-between items-center text-orange-400/80 text-sm">
                     <span>Flat Tax / PFU (31,4%)</span>
                     <span className="font-mono">− {formatCurrency(app2Taxes.flatTax)}</span>
@@ -313,7 +334,7 @@ export default function App() {
                 <div className="flex justify-between items-center mt-5 p-5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400">
                   <span className="uppercase tracking-[0.1em] text-sm font-bold text-white">Plus-value nette</span>
                   <span className="flex items-baseline gap-2 font-mono text-2xl font-bold">
-                    {app2Taxes.net > 0 ? '+' : ''}{formatCurrency(app2Taxes.net)}
+                    {app2PvNette > 0 ? '+' : ''}{formatCurrency(app2PvNette)}
                     <span className="text-sm font-sans font-medium opacity-80 tracking-normal ml-1">
                       ({app2TargetPct > 0 ? '+' : ''}{formatPercent(app2TargetPct)})
                     </span>
@@ -335,9 +356,9 @@ export default function App() {
               <div>
                 <div className="flex items-center gap-3 text-white font-semibold mb-2">
                   <TrendingUp className="w-5 h-5 text-slate-500" />
-                  <span className="tracking-wide text-lg">Seuil PV nette <span className="text-slate-500 font-mono text-xs ml-2 tracking-normal uppercase">(P &gt; PRU)</span></span>
+                  <span className="tracking-wide text-lg">Prix de Revient Unitaire <span className="text-slate-500 font-mono text-xs ml-2 tracking-normal uppercase">(PRU)</span></span>
                 </div>
-                <div className="text-sm text-slate-400 ml-8">Toute cession au-dessus du PRU génère une PV nette positive</div>
+                <div className="text-sm text-slate-400 ml-8">Équilibre brut. Attention: une vente au PRU génère une PV nette <span className="text-rose-400">négative</span> (impôt sur les frais).</div>
               </div>
               <div className="text-left md:text-right ml-8 md:ml-0">
                 <div className="font-bold text-xl text-white font-mono">{formatCurrency(pru)} <span className="text-xs text-slate-500 uppercase tracking-widest font-sans font-bold ml-1">/ part</span></div>
@@ -349,9 +370,9 @@ export default function App() {
               <div>
                 <div className="flex items-center gap-3 text-emerald-400 font-semibold mb-2">
                   <TrendingUp className="w-5 h-5 text-emerald-500" />
-                  <span className="tracking-wide text-lg">Récupérer sa mise</span>
+                  <span className="tracking-wide text-lg">Point mort net (Break-even)</span>
                 </div>
-                <div className="text-sm text-slate-400 ml-8">Multiple brut requis : <span className="font-mono text-emerald-400/80">{thresholdReoupMultiple.toFixed(2)}x</span></div>
+                <div className="text-sm text-slate-400 ml-8">Véritable seuil de rentabilité pour récupérer sa mise initiale après impôts.</div>
               </div>
               <div className="text-left md:text-right ml-8 md:ml-0">
                 <div className="font-bold text-xl text-emerald-400 font-mono">{formatCurrency(thresholdReoupPrice)} <span className="text-xs text-emerald-500/50 uppercase tracking-widest font-sans font-bold ml-1">/ part</span></div>
